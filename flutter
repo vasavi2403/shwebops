@@ -1,0 +1,131 @@
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+void main() {
+  runApp(MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Reading List',
+      theme: ThemeData.light(),
+      darkTheme: ThemeData.dark(),
+      themeMode: ThemeMode.system,
+      home: ReadingListScreen(),
+    );
+  }
+}
+
+class ReadingListScreen extends StatefulWidget {
+  @override
+  _ReadingListScreenState createState() => _ReadingListScreenState();
+}
+
+class _ReadingListScreenState extends State<ReadingListScreen> {
+  List<Book> books = [];
+  String filter = 'All';
+
+  @override
+  void initState() {
+    super.initState();
+    loadBooks();
+  }
+
+  Future<void> loadBooks() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    // Load books from SharedPreferences
+    // Example: books = prefs.getStringList('books')?.map((e) => Book.fromJson(e)).toList() ?? [];
+    setState(() {});
+  }
+
+  Future<void> saveBooks() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    // Save books to SharedPreferences
+    // Example: prefs.setStringList('books', books.map((e) => e.toJson()).toList());
+  }
+
+  void toggleReadStatus(int index) {
+    setState(() {
+      books[index].isRead = !books[index].isRead;
+    });
+    saveBooks();
+  }
+
+  void openGoogleSearch(String title) async {
+    final url = 'https://www.google.com/search?q=${Uri.encodeComponent(title)}';
+    if (await canLaunch(url)) {
+      await launch(url);
+    } else {
+      throw 'Could not launch $url';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    List<Book> filteredBooks = books.where((book) {
+      if (filter == 'All') return true;
+      if (filter == 'Active') return !book.isRead;
+      if (filter == 'Completed') return book.isRead;
+      return false;
+    }).toList();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Reading List'),
+        actions: [
+          DropdownButton<String>(
+            value: filter,
+            items: <String>['All', 'Active', 'Completed'].map((String value) {
+              return DropdownMenuItem<String>(
+                value: value,
+                child: Text(value),
+              );
+            }).toList(),
+            onChanged: (newValue) {
+              setState(() {
+                filter = newValue!;
+              });
+            },
+          ),
+        ],
+      ),
+      body: ListView.builder(
+        itemCount: filteredBooks.length,
+        itemBuilder: (context, index) {
+          final book = filteredBooks[index];
+          return Card(
+            child: ListTile(
+              title: Text(book.title),
+              trailing: Checkbox(
+                value: book.isRead,
+                onChanged: (value) => toggleReadStatus(index),
+              ),
+              onLongPress: () {
+                // Implement editing feature
+              },
+              onTap: () => openGoogleSearch(book.title),
+            ),
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          // Implement adding new book feature
+        },
+        child: Icon(Icons.add),
+      ),
+    );
+  }
+}
+
+class Book {
+  String title;
+  bool isRead;
+
+  Book({required this.title, this.isRead = false});
+
+  // Implement fromJson and toJson methods for SharedPreferences
+}
