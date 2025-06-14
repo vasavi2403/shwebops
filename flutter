@@ -37,14 +37,12 @@ class _ReadingListScreenState extends State<ReadingListScreen> {
   Future<void> loadBooks() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     // Load books from SharedPreferences
-    // Example: books = prefs.getStringList('books')?.map((e) => Book.fromJson(e)).toList() ?? [];
     setState(() {});
   }
 
   Future<void> saveBooks() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     // Save books to SharedPreferences
-    // Example: prefs.setStringList('books', books.map((e) => e.toJson()).toList());
   }
 
   void toggleReadStatus(int index) {
