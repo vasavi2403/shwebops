@@ -1,48 +1,93 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'dart:convert';
 
 void main() {
   runApp(MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  ThemeMode _themeMode = ThemeMode.system;
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Reading List',
-      theme: ThemeData.light(),
-      darkTheme: ThemeData.dark(),
-      themeMode: ThemeMode.system,
-      home: ReadingListScreen(),
+      theme: ThemeData.light(useMaterial3: true),
+      darkTheme: ThemeData.dark(useMaterial3: true),
+      themeMode: _themeMode,
+      home: ReadingListScreen(
+        onThemeModeChanged: (ThemeMode mode) {
+          setState(() {
+            _themeMode = mode;
+          });
+        },
+      ),
     );
   }
 }
 
 class ReadingListScreen extends StatefulWidget {
+  final Function(ThemeMode) onThemeModeChanged;
+
+  const ReadingListScreen({Key? key, required this.onThemeModeChanged}) : super(key: key);
+
   @override
   _ReadingListScreenState createState() => _ReadingListScreenState();
 }
 
-class _ReadingListScreenState extends State<ReadingListScreen> {
+class _ReadingListScreenState extends State<ReadingListScreen> with TickerProviderStateMixin {
   List<Book> books = [];
   String filter = 'All';
+  late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
     loadBooks();
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      setState(() {
+        switch (_tabController.index) {
+          case 0:
+            filter = 'All';
+            break;
+          case 1:
+            filter = 'Active';
+            break;
+          case 2:
+            filter = 'Completed';
+            break;
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> loadBooks() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    // Load books from SharedPreferences
+    List<String>? bookStrings = prefs.getStringList('books');
+    if (bookStrings != null) {
+      books = bookStrings.map((bookString) => Book.fromJson(jsonDecode(bookString))).toList();
+    }
     setState(() {});
   }
 
   Future<void> saveBooks() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    // Save books to SharedPreferences
+    List<String> bookStrings = books.map((book) => jsonEncode(book.toJson())).toList();
+    await prefs.setStringList('books', bookStrings);
   }
 
   void toggleReadStatus(int index) {
@@ -54,11 +99,32 @@ class _ReadingListScreenState extends State<ReadingListScreen> {
 
   void openGoogleSearch(String title) async {
     final url = 'https://www.google.com/search?q=${Uri.encodeComponent(title)}';
-    if (await canLaunch(url)) {
-      await launch(url);
+    if (await canLaunchUrl(Uri.parse(url))) {
+      await launchUrl(Uri.parse(url));
     } else {
       throw 'Could not launch $url';
     }
+  }
+
+  void addBook(String title) {
+    setState(() {
+      books.add(Book(title: title));
+    });
+    saveBooks();
+  }
+
+  void editBook(int index, String newTitle) {
+    setState(() {
+      books[index].title = newTitle;
+    });
+    saveBooks();
+  }
+
+  void deleteBook(int index) {
+    setState(() {
+      books.removeAt(index);
+    });
+    saveBooks();
   }
 
   @override
@@ -74,44 +140,138 @@ class _ReadingListScreenState extends State<ReadingListScreen> {
       appBar: AppBar(
         title: Text('Reading List'),
         actions: [
-          DropdownButton<String>(
-            value: filter,
-            items: <String>['All', 'Active', 'Completed'].map((String value) {
-              return DropdownMenuItem<String>(
-                value: value,
-                child: Text(value),
+          IconButton(
+            icon: Icon(Theme.of(context).brightness == Brightness.light ? Icons.dark_mode : Icons.light_mode),
+            onPressed: () {
+              widget.onThemeModeChanged(
+                Theme.of(context).brightness == Brightness.light ? ThemeMode.dark : ThemeMode.light,
               );
-            }).toList(),
-            onChanged: (newValue) {
-              setState(() {
-                filter = newValue!;
-              });
             },
           ),
         ],
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: 'All'),
+            Tab(text: 'Active'),
+            Tab(text: 'Completed'),
+          ],
+        ),
       ),
-      body: ListView.builder(
-        itemCount: filteredBooks.length,
-        itemBuilder: (context, index) {
-          final book = filteredBooks[index];
-          return Card(
-            child: ListTile(
-              title: Text(book.title),
-              trailing: Checkbox(
-                value: book.isRead,
-                onChanged: (value) => toggleReadStatus(index),
-              ),
-              onLongPress: () {
-                // Implement editing feature
+      body: filteredBooks.isEmpty
+          ? Center(child: Text('No books in the list.'))
+          : ListView.builder(
+              padding: const EdgeInsets.all(8),
+              itemCount: filteredBooks.length,
+              itemBuilder: (context, index) {
+                final book = filteredBooks[index];
+                return Dismissible(
+                  key: Key(book.title),
+                  onDismissed: (direction) {
+                    deleteBook(index);
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${book.title} deleted')));
+                  },
+                  background: Container(
+                    color: Colors.red,
+                    alignment: Alignment.centerLeft,
+                    padding: const EdgeInsets.only(left: 20.0),
+                    child: const Icon(Icons.delete, color: Colors.white),
+                  ),
+                  secondaryBackground: Container(
+                    color: Colors.red,
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(right: 20.0),
+                    child: const Icon(Icons.delete, color: Colors.white),
+                  ),
+                  child: Card(
+                    elevation: 4,
+                    margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: ListTile(
+                        title: Text(book.title),
+                        trailing: Checkbox(
+                          value: book.isRead,
+                          onChanged: (value) => toggleReadStatus(index),
+                        ),
+                        onLongPress: () {
+                          showDialog(
+                            context: context,
+                            builder: (context) {
+                              String newTitle = book.title;
+                              return AlertDialog(
+                                title: Text('Edit Book'),
+                                content: TextField(
+                                  onChanged: (value) {
+                                    newTitle = value;
+                                  },
+                                  controller: TextEditingController(text: book.title),
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                    },
+                                    child: Text('Cancel'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () {
+                                      editBook(index, newTitle);
+                                      Navigator.pop(context);
+                                    },
+                                    child: Text('Save'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () {
+                                      deleteBook(index);
+                                      Navigator.pop(context);
+                                    },
+                                    child: Text('Delete', style: TextStyle(color: Colors.red)),
+                                  ),
+                                ],
+                              );
+                            },
+                          );
+                        },
+                        onTap: () => openGoogleSearch(book.title),
+                      ),
+                    ),
+                  ),
+                );
               },
-              onTap: () => openGoogleSearch(book.title),
             ),
-          );
-        },
-      ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          // Implement adding new book feature
+          showDialog(
+            context: context,
+            builder: (context) {
+              String newTitle = '';
+              return AlertDialog(
+                title: Text('Add New Book'),
+                content: TextField(
+                  onChanged: (value) {
+                    newTitle = value;
+                  },
+                  decoration: InputDecoration(hintText: 'Enter book title'),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                    },
+                    child: Text('Cancel'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      addBook(newTitle);
+                      Navigator.pop(context);
+                    },
+                    child: Text('Add'),
+                  ),
+                ],
+              );
+            },
+          );
         },
         child: Icon(Icons.add),
       ),
@@ -125,5 +285,17 @@ class Book {
 
   Book({required this.title, this.isRead = false});
 
-  // Implement fromJson and toJson methods for SharedPreferences
+  factory Book.fromJson(Map<String, dynamic> json) {
+    return Book(
+      title: json['title'],
+      isRead: json['isRead'] ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'title': title,
+      'isRead': isRead,
+    };
+  }
 }
